@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Homo sapiens caminando — Escena 3D</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; background: #0b0d12; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    #app { position: fixed; inset: 0; }
+    .hud {
+      position: fixed; left: 20px; top: 20px; z-index: 10;
+      color: #e7eaf0; user-select: none; pointer-events: none;
+      text-shadow: 0 1px 3px rgba(0,0,0,.6);
+    }
+    .hud h1 { font-size: 15px; font-weight: 600; letter-spacing: .3px; }
+    .hud p { font-size: 12px; opacity: .65; margin-top: 4px; }
+    .panel {
+      position: fixed; right: 20px; top: 20px; z-index: 10;
+      background: rgba(20,24,33,.82); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 12px;
+      padding: 16px 18px; width: 230px; color: #d7dce6;
+    }
+    .panel label { display: block; font-size: 12px; margin: 14px 0 6px; opacity: .8; }
+    .panel label:first-child { margin-top: 0; }
+    .panel input[type=range] { width: 100%; accent-color: #6aa9ff; }
+    .panel .val { float: right; font-variant-numeric: tabular-nums; opacity: .55; }
+    .panel button {
+      width: 100%; margin-top: 16px; padding: 9px; cursor: pointer;
+      background: #2a3142; color: #e7eaf0; border: 1px solid rgba(255,255,255,.1);
+      border-radius: 8px; font-size: 13px; transition: background .15s;
+    }
+    .panel button:hover { background: #343d52; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="hud">
+    <h1>Homo sapiens caminando</h1>
+    <p>Arrastra para rotar · rueda para zoom · clic derecho para desplazar</p>
+  </div>
+  <div class="panel">
+    <label>Velocidad de caminata <span class="val" id="vSpeed">1.0×</span></label>
+    <input id="speed" type="range" min="0" max="3" step="0.05" value="1" />
+    <label>Longitud de zancada <span class="val" id="vStride">1.0×</span></label>
+    <input id="stride" type="range" min="0.3" max="1.8" step="0.05" value="1" />
+    <button id="toggle">Pausar / Reanudar</button>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ---------- Escena, cámara, render ----------
+    const app = document.getElementById('app');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b0d12);
+    scene.fog = new THREE.Fog(0x0b0d12, 18, 42);
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100);
+    camera.position.set(4.5, 3.2, 6.5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    app.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1.5, 0);
+    controls.maxPolarAngle = Math.PI * 0.495;
+    controls.minDistance = 3;
+    controls.maxDistance = 20;
+
+    // ---------- Luces ----------
+    scene.add(new THREE.HemisphereLight(0x99bbff, 0x202830, 0.55));
+    const key = new THREE.DirectionalLight(0xfff2e0, 2.1);
+    key.position.set(6, 9, 5);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.camera.near = 1; key.shadow.camera.far = 40;
+    key.shadow.camera.left = -10; key.shadow.camera.right = 10;
+    key.shadow.camera.top = 10; key.shadow.camera.bottom = -10;
+    key.shadow.bias = -0.0004;
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x6aa9ff, 0.8);
+    rim.position.set(-7, 4, -6);
+    scene.add(rim);
+
+    // ---------- Suelo ----------
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(40, 64),
+      new THREE.MeshStandardMaterial({ color: 0x14171f, roughness: 0.95, metalness: 0 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const grid = new THREE.GridHelper(60, 60, 0x2a3142, 0x1c2129);
+    grid.material.opacity = 0.5; grid.material.transparent = true;
+    scene.add(grid);
+
+    // ---------- Materiales del personaje ----------
+    const skin = new THREE.MeshStandardMaterial({ color: 0xb5805e, roughness: 0.7 });
+    const cloth = new THREE.MeshStandardMaterial({ color: 0x3f6fb0, roughness: 0.85 });
+    const pants = new THREE.MeshStandardMaterial({ color: 0x2c3340, roughness: 0.9 });
+    const shoe = new THREE.MeshStandardMaterial({ color: 0x14161b, roughness: 0.6 });
+
+    // Utilidad: crea un mesh, lo añade a un padre y lo desplaza
+    function part(geo, mat, parent, x = 0, y = 0, z = 0) {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.castShadow = true; m.receiveShadow = true;
+      parent.add(m);
+      return m;
+    }
+    // Pivote vacío (articulación)
+    function joint(parent, x = 0, y = 0, z = 0) {
+      const g = new THREE.Group();
+      g.position.set(x, y, z);
+      parent.add(g);
+      return g;
+    }
+
+    // ---------- Construcción del esqueleto (jerárquico) ----------
+    const human = new THREE.Group();        // se mueve por el suelo
+    scene.add(human);
+    const body = new THREE.Group();         // sube/baja (bobbing)
+    human.add(body);
+
+    // Pelvis a ~0.95m
+    const pelvis = joint(body, 0, 0.95, 0);
+    part(new THREE.CapsuleGeometry(0.16, 0.18, 6, 12), pants, pelvis, 0, 0.02, 0);
+
+    // Torso
+    const spine = joint(pelvis, 0, 0.18, 0);
+    part(new THREE.CapsuleGeometry(0.20, 0.42, 8, 16), cloth, spine, 0, 0.28, 0);
+    // Cuello + cabeza
+    const neck = joint(spine, 0, 0.55, 0);
+    part(new THREE.CylinderGeometry(0.06, 0.07, 0.1, 12), skin, neck, 0, 0.05, 0);
+    const head = joint(neck, 0, 0.12, 0);
+    part(new THREE.SphereGeometry(0.15, 24, 20), skin, head, 0, 0.07, 0);
+    // nariz para dar orientación clara
+    part(new THREE.ConeGeometry(0.03, 0.07, 8), skin, head, 0, 0.05, 0.15).rotation.x = Math.PI / 2;
+
+    // Brazos: hombro -> codo -> mano
+    function makeArm(side) { // side: -1 izq, +1 der
+      const shoulder = joint(spine, side * 0.28, 0.48, 0);
+      part(new THREE.CapsuleGeometry(0.06, 0.26, 6, 12), cloth, shoulder, 0, -0.18, 0);
+      const elbow = joint(shoulder, 0, -0.34, 0);
+      part(new THREE.CapsuleGeometry(0.05, 0.24, 6, 12), skin, elbow, 0, -0.16, 0);
+      part(new THREE.SphereGeometry(0.055, 12, 10), skin, elbow, 0, -0.32, 0); // mano
+      return { shoulder, elbow };
+    }
+    const armL = makeArm(-1);
+    const armR = makeArm(+1);
+
+    // Piernas: cadera -> rodilla -> pie
+    function makeLeg(side) {
+      const hip = joint(pelvis, side * 0.12, -0.05, 0);
+      part(new THREE.CapsuleGeometry(0.085, 0.32, 6, 12), pants, hip, 0, -0.22, 0);
+      const knee = joint(hip, 0, -0.42, 0);
+      part(new THREE.CapsuleGeometry(0.07, 0.30, 6, 12), skin, knee, 0, -0.2, 0);
+      const ankle = joint(knee, 0, -0.38, 0);
+      part(new THREE.BoxGeometry(0.12, 0.07, 0.26), shoe, ankle, 0, -0.03, 0.05); // pie
+      return { hip, knee, ankle };
+    }
+    const legL = makeLeg(-1);
+    const legR = makeLeg(+1);
+
+    // ---------- Ciclo de caminata (animación procedimental) ----------
+    let t = 0;            // fase del ciclo
+    let playing = true;
+    let speed = 1.0;      // multiplicador de velocidad
+    let stride = 1.0;     // longitud de zancada
+    const baseFreq = 2.2; // pasos base por segundo
+
+    function animateWalk(dt) {
+      if (playing) t += dt * baseFreq * speed;
+      const ph = t;                       // fase
+      const s = Math.sin(ph);
+      const s2 = Math.sin(ph * 2);
+
+      // Balanceo de piernas (las dos en oposición de fase)
+      const swing = 0.7 * stride;
+      legL.hip.rotation.x = s * swing;
+      legR.hip.rotation.x = -s * swing;
+      // Rodillas: se flexionan en la fase de recobro (nunca hacia adelante)
+      legL.knee.rotation.x = Math.max(0, -Math.sin(ph - 0.5)) * 1.4 * stride;
+      legR.knee.rotation.x = Math.max(0, -Math.sin(ph + Math.PI - 0.5)) * 1.4 * stride;
+      // Tobillos amortiguan
+      legL.ankle.rotation.x = -0.25 * Math.cos(ph) - 0.1;
+      legR.ankle.rotation.x = 0.25 * Math.cos(ph) - 0.1;
+
+      // Brazos en contrafase a las piernas
+      armL.shoulder.rotation.x = -s * 0.55;
+      armR.shoulder.rotation.x = s * 0.55;
+      armL.elbow.rotation.x = -0.4 - 0.2 * (s * 0.5 + 0.5);
+      armR.elbow.rotation.x = -0.4 - 0.2 * (-s * 0.5 + 0.5);
+
+      // "Bobbing": el cuerpo sube/baja dos veces por ciclo
+      body.position.y = Math.abs(s2) * 0.07 * stride;
+      // Ligera rotación de pelvis y balanceo del torso
+      pelvis.rotation.y = s * 0.12;
+      pelvis.rotation.z = s * 0.06;
+      spine.rotation.y = -s * 0.08;
+      spine.rotation.z = Math.sin(ph) * -0.03;
+      head.rotation.y = -s * 0.05;
+
+      // Camina "en el sitio": el personaje queda centrado y el suelo
+      // se desplaza para dar sensación de avance (las celdas de 1u se repiten).
+      if (playing) {
+        const fwd = dt * speed * 1.4 * stride;
+        grid.position.z = (grid.position.z + fwd) % 1;
+      }
+    }
+
+    // ---------- Controles de la UI ----------
+    const $ = id => document.getElementById(id);
+    $('speed').addEventListener('input', e => {
+      speed = +e.target.value; $('vSpeed').textContent = speed.toFixed(2) + '×';
+    });
+    $('stride').addEventListener('input', e => {
+      stride = +e.target.value; $('vStride').textContent = stride.toFixed(2) + '×';
+    });
+    $('toggle').addEventListener('click', () => { playing = !playing; });
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // ---------- Bucle de render ----------
+    const clock = new THREE.Clock();
+    function loop() {
+      const dt = Math.min(clock.getDelta(), 0.05);
+      animateWalk(dt);
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>

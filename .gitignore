@@ -1,0 +1,9 @@
+# Herramientas locales
+.claude/
+.vercel/
+node_modules/
+.DS_Store
+
+# Archivos no usados en el deploy
+dino-walk.html
+personaje.fbx
