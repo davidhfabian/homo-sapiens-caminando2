@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Homo sapiens caminando — Maqueta 3D</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; background: #d9c39a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    #app { position: fixed; inset: 0; }
+
+    .hud { position: fixed; left: 22px; top: 18px; z-index: 10; color: #fff; user-select: none; pointer-events: none; text-shadow: 0 2px 6px rgba(0,0,0,.5); }
+    .hud h1 { font-size: 24px; font-weight: 700; font-style: italic; letter-spacing: .2px; }
+    .hud h1 small { font-style: normal; font-weight: 500; opacity: .85; font-size: 15px; }
+    .hud p { font-size: 12px; opacity: .8; margin-top: 3px; }
+
+    .panel { position: fixed; right: 20px; top: 18px; z-index: 10; background: rgba(28,22,14,.78); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 15px 17px; width: 220px; color: #f1e9d8; }
+    .panel label { display: block; font-size: 12px; margin: 0 0 6px; opacity: .85; }
+    .panel input[type=range] { width: 100%; accent-color: #e8a85a; }
+    .panel .val { float: right; font-variant-numeric: tabular-nums; opacity: .6; }
+    .panel button { width: 100%; margin-top: 12px; padding: 9px; cursor: pointer; background: #5a4326; color: #fdf6e8; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; font-size: 13px; transition: background .15s; }
+    .panel button:hover { background: #6e5430; }
+
+    #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #5a4326; font-size: 15px; z-index: 20; background: #d9c39a; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="loading">Cargando maqueta 3D…</div>
+
+  <div class="hud">
+    <h1><i>Homo sapiens</i> <small>caminando</small></h1>
+    <p>Arrastra para rotar · rueda para zoom · clic derecho para desplazar</p>
+  </div>
+
+  <div class="panel">
+    <label>Velocidad de caminata <span class="val" id="vSpeed">1.0×</span></label>
+    <input id="speed" type="range" min="0.2" max="3" step="0.05" value="1" />
+    <button id="toggle">▶ Caminar</button>
+  </div>
+
+  <script type="importmap">
+  { "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  } }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+
+    const SKIN_URL = 'personaje2-skin.fbx';   // malla con piel (animación Idle)
+    const ANIM_URL = 'personaje2-walk.fbx';   // animación de caminar
+
+    // ---------- Escena ----------
+    const app = document.getElementById('app');
+    const scene = new THREE.Scene();
+
+    // Cielo de sabana (degradado dibujado en un canvas)
+    const sky = document.createElement('canvas'); sky.width = 2; sky.height = 256;
+    const sctx = sky.getContext('2d');
+    const sg = sctx.createLinearGradient(0, 0, 0, 256);
+    sg.addColorStop(0.0, '#6ea2d8');   // azul cielo arriba
+    sg.addColorStop(0.55, '#bcd0d6');
+    sg.addColorStop(0.8, '#e8d6a8');   // calina cálida en el horizonte
+    sg.addColorStop(1.0, '#e3c98f');
+    sctx.fillStyle = sg; sctx.fillRect(0, 0, 2, 256);
+    scene.background = new THREE.CanvasTexture(sky);
+    scene.fog = new THREE.Fog(0xddc99a, 22, 75);
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 400);
+    camera.position.set(3, 2.2, 6);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    app.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1, 0);
+    controls.maxPolarAngle = Math.PI * 0.495;
+    controls.minDistance = 2.5;
+    controls.maxDistance = 30;
+
+    // ---------- Sol de sabana ----------
+    scene.add(new THREE.HemisphereLight(0xbcd0e0, 0x6b5836, 0.7));
+    const sun = new THREE.DirectionalLight(0xfff0d0, 2.4);
+    sun.position.set(8, 11, 4);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 1; sun.shadow.camera.far = 50;
+    sun.shadow.camera.left = -12; sun.shadow.camera.right = 12;
+    sun.shadow.camera.top = 12; sun.shadow.camera.bottom = -12;
+    sun.shadow.bias = -0.0004;
+    scene.add(sun);
+    const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(3, 32), new THREE.MeshBasicMaterial({ color: 0xfff4d6, fog: false }));
+    sunDisc.position.set(-22, 16, -45);
+    scene.add(sunDisc);
+
+    // ---------- Suelo de sabana ----------
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(120, 80),
+      new THREE.MeshStandardMaterial({ color: 0xb89a63, roughness: 1 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Matas de hierba seca repartidas
+    const tuftGeo = new THREE.ConeGeometry(0.12, 0.5, 5);
+    const tuftMat = new THREE.MeshStandardMaterial({ color: 0x9c8a4a, roughness: 1 });
+    const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, 260);
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < 260; i++) {
+      const a = Math.random() * Math.PI * 2, r = 3 + Math.random() * 40;
+      m.makeTranslation(Math.cos(a) * r, 0.25, Math.sin(a) * r);
+      tufts.setMatrixAt(i, m);
+    }
+    tufts.receiveShadow = true;
+    scene.add(tufts);
+
+    // Acacias (árbol típico de la sabana africana: tronco + copa achatada)
+    function acacia(x, z, s = 1) {
+      const g = new THREE.Group();
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12 * s, 0.18 * s, 2.2 * s, 8), new THREE.MeshStandardMaterial({ color: 0x6b4f33, roughness: 1 }));
+      trunk.position.y = 1.1 * s; trunk.castShadow = true; g.add(trunk);
+      const canopy = new THREE.Mesh(new THREE.SphereGeometry(1.6 * s, 16, 10), new THREE.MeshStandardMaterial({ color: 0x5f7a3e, roughness: 1 }));
+      canopy.scale.y = 0.42; canopy.position.y = 2.5 * s; canopy.castShadow = true; g.add(canopy);
+      g.position.set(x, 0, z);
+      scene.add(g);
+    }
+    acacia(-9, -7, 1.2); acacia(11, -10, 1); acacia(-14, 4, 1.1);
+    acacia(16, 6, 0.9); acacia(7, 13, 1.15); acacia(-11, 12, 0.85);
+
+    // Colinas lejanas
+    const hillMat = new THREE.MeshStandardMaterial({ color: 0xa8915e, roughness: 1 });
+    for (const [hx, hz, hs] of [[-30, -38, 14], [20, -45, 18], [45, -20, 16], [-48, -10, 15]]) {
+      const hill = new THREE.Mesh(new THREE.SphereGeometry(hs, 20, 12), hillMat);
+      hill.position.set(hx, -hs * 0.55, hz);
+      scene.add(hill);
+    }
+
+    // ---------- Animación: Idle <-> Walk con transición suave ----------
+    let mixer = null, idleAction = null, walkAction = null, current = null;
+    let walking = false, speed = 1.0;
+    const clock = new THREE.Clock();
+    const loader = new FBXLoader();
+
+    function fadeTo(next, dur = 0.35) {
+      if (!next || next === current) return;
+      next.reset(); next.enabled = true; next.setEffectiveWeight(1); next.play();
+      if (current) current.crossFadeTo(next, dur, false);
+      current = next;
+    }
+
+    function caminarEnElSitio(clip) {
+      for (const track of clip.tracks) {
+        if (/Hips.*\.position$/.test(track.name)) {
+          const v = track.values, x0 = v[0], z0 = v[2];
+          for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; }
+        }
+      }
+      return clip;
+    }
+
+    loader.load(SKIN_URL, (obj) => {
+      obj.scale.setScalar(0.01);
+      obj.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+      scene.add(obj);
+
+      // Encuadre de cámara según la altura del modelo
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = new THREE.Vector3(); box.getSize(size);
+      const h = size.y || 1.8;
+      controls.target.set(0, h * 0.55, 0);
+      camera.position.set(h * 1.5, h * 0.95, h * 2.6);
+
+      mixer = new THREE.AnimationMixer(obj);
+      if (obj.animations && obj.animations[0]) { idleAction = mixer.clipAction(obj.animations[0]); current = idleAction; idleAction.play(); }
+
+      // Apoyar los pies en el suelo usando la MALLA YA ANIMADA (no la pose de reposo)
+      function apoyarEnSuelo() {
+        mixer.update(0);
+        obj.updateWorldMatrix(true, true);
+        let minY = Infinity;
+        obj.traverse((c) => {
+          if (c.isSkinnedMesh) {
+            c.computeBoundingBox();
+            const b = c.boundingBox.clone().applyMatrix4(c.matrixWorld);
+            minY = Math.min(minY, b.min.y);
+          }
+        });
+        if (isFinite(minY)) obj.position.y -= minY;
+      }
+      if (idleAction) apoyarEnSuelo();
+
+      loader.load(ANIM_URL, (animObj) => {
+        const clip = animObj.animations && animObj.animations[0];
+        if (clip) walkAction = mixer.clipAction(caminarEnElSitio(clip));
+        if (!idleAction && walkAction) { current = walkAction; walkAction.play(); walking = true; setBtn(); apoyarEnSuelo(); }
+        document.getElementById('loading').style.display = 'none';
+      }, undefined, (err) => {
+        console.error('Error cargando animación de caminar:', err);
+        document.getElementById('loading').style.display = 'none';
+      });
+    },
+    (xhr) => {
+      if (xhr.total) document.getElementById('loading').textContent = `Cargando maqueta 3D… ${Math.round(xhr.loaded / xhr.total * 100)}%`;
+    },
+    (err) => {
+      console.error('Error cargando FBX:', err);
+      document.getElementById('loading').textContent = 'Error al cargar el modelo (revisa la consola).';
+    });
+
+    // ---------- Controles UI ----------
+    const $ = id => document.getElementById(id);
+    function setBtn() { $('toggle').textContent = walking ? '⏸ Detenerse' : '▶ Caminar'; }
+    $('speed').addEventListener('input', e => { speed = +e.target.value; $('vSpeed').textContent = speed.toFixed(2) + '×'; });
+    $('toggle').addEventListener('click', () => {
+      if (!walkAction || !idleAction) return;
+      walking = !walking; fadeTo(walking ? walkAction : idleAction); setBtn();
+    });
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    function loop() {
+      const dt = Math.min(clock.getDelta(), 0.05);
+      if (walkAction) walkAction.setEffectiveTimeScale(speed);
+      if (mixer) mixer.update(dt);
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>
